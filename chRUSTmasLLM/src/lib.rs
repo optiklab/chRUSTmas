@@ -1,0 +1,44 @@
+use ndarray::prelude::*;
+use polars::prelude::*;
+use rand::distr::Uniform;
+use rand::prelude::*;
+use std::collections::HashMap;
+use std::fs::File;
+use std::path::PathBuf;
+
+pub fn array_from_dataframe(df: &DataFrame) -> Array2<f32> {
+    df.to_ndarray::<Float32Type>(IndexOrder::C).unwrap().reversed_axes()
+}
+
+pub fn dataframe_from_csv(file_path: PathBuf) -> PolarsResult<(DataFrame, DataFrame)> {
+    let file = File::open(file_path).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+    let data = CsvReader::new(file).finish()?;
+
+    // Now, splitting loaded DataFrame (data) into features and labels
+    // to prepare data for machine learning.
+
+    // Create a new DataFrame that contains all the columns from the original CSV
+    // except the column named "y". This represents input features (X).
+    let training_dataset = data.drop("y")?;
+
+    // Create a separate DataFrame that contains only the column named "y". 
+    // This represents target variable (labels).
+    let training_labels = data.select(["y"])?;
+
+    return Ok((training_dataset, training_labels));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dataframe_from_csv() {
+        let file_path = PathBuf::from("datasets/training_set.csv");
+        let result = dataframe_from_csv(file_path);
+        assert!(result.is_ok());
+        let (training, labels) = result.unwrap();
+        assert!(!training.is_empty());
+        assert!(!labels.is_empty());
+    }
+}
