@@ -26,8 +26,16 @@ The typical process to convert cat images into CSV files with 12,288 features fo
 
 5. Flatten the Array
 - Reshape 3D array [3, 64, 64] into 1D vector of length 12,288
-- Common flattening order: all red channel values, then green, then blue
-- Alternative: interleaved (R,G,B of pixel 1, then pixel 2, etc.)
+- Common flattening order: all red channel values, then green, then blue:
+    ```    
+            # Reshape from 12288 to (3, 64, 64)
+            # The data is organized as: [all R values, all G values, all B values]
+            image_array = flattened_pixels.reshape((3, 64, 64))
+            
+            # Transpose to (64, 64, 3) for PIL
+            image_array = np.transpose(image_array, (1, 2, 0))
+    ```
+    But in our case interleaved (R,G,B of pixel 1, then pixel 2, etc.). See code examples below.            
 
 6. Create Label
 - Assign label: 1 for cat, 0 for non-cat
@@ -35,18 +43,36 @@ The typical process to convert cat images into CSV files with 12,288 features fo
 
 7. Write to CSV
 - Each row: one image (12,288 feature columns + 1 label column)
-- Column names: typically "pixel_0", "pixel_1", ..., "pixel_12287", "y"
+- Column names: typically "0", "1", ..., "12287", "y"
 
-Common Python approach (for reference when adjusting data):
-
+Common Python approach (for reference when adjusting data) flattened row-by-row with RGB values together for each pixel:
 ```
     from PIL import Image
     import numpy as np
 
-    img = Image.open('cat.jpg').convert('RGB')
-    img = img.resize((64, 64))
-    pixels = np.array(img) / 255.0  # Shape: (64, 64, 3)
-    flattened = pixels.flatten()     # Shape: (12288,)
+    def convert_image_to_features(image_path):
+        img = Image.open(image_path).convert('RGB') # Load image
+        img = img.resize((64, 64))                  # Resize image to 64x64
+        pixels = np.array(img) / 255.0              # Convert to numpy array and normalize. Shape: (64, 64, 3)
+        flattened = pixels.flatten()                # Flatten row-by-row with RGB values together
+        return flattened
+
+    features = convert_image_to_features('cat.jpg')
+
+    # Create CSV from multiple images
+    import csv
+
+    images = ['cat1.jpg', 'cat2.jpg', 'dog.jpg']
+    labels = [1, 1, 0]  # 1 for cat, 0 for non-cat
+
+    with open('dataset.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        # Write header
+        writer.writerow(list(range(12288)) + ['y'])
+        # Write data
+        for img_path, label in zip(images, labels):
+            features = convert_image_to_features(img_path)
+            writer.writerow(list(features) + [label])
 ```
 
 To adjust your data later, you'd reverse this: reshape 12,288 → (64, 64, 3), then modify and re-flatten.
@@ -62,7 +88,7 @@ using SixLabors.ImageSharp.Processing;
 
 public class ImageToCSV
 {
-    public static float[] ConvertImageToFeatures(string imagePath)
+    public static float[] ConvertImageToFeaturesChannelByChannel(string imagePath)
     {
         // Load and resize image to 64x64
         using (var image = Image.Load<Rgb24>(imagePath))
@@ -96,6 +122,34 @@ public class ImageToCSV
             return features;
         }
     }
+
+    public static float[] ConvertImageToFeaturesPixelByPixel(string imagePath)
+    {
+        // Load and resize image to 64x64
+        using (var image = Image.Load<Rgb24>(imagePath))
+        {
+            image.Mutate(x => x.Resize(64, 64));
+            
+            // Create array to store flattened pixels
+            float[] features = new float[64 * 64 * 3]; // 12,288
+            int index = 0;
+            
+            // Extract pixel values row by row, RGB together
+            for (int y = 0; y < 64; y++)
+            {
+                for (int x = 0; x < 64; x++)
+                {
+                    var pixel = image[x, y];
+                    // Store R, G, B values for this pixel together
+                    features[index++] = pixel.R / 255.0f;
+                    features[index++] = pixel.G / 255.0f;
+                    features[index++] = pixel.B / 255.0f;
+                }
+            }
+            
+            return features;
+        }
+    }
     
     public static void CreateCSVFromImages(string[] imagePaths, int[] labels, string outputPath)
     {
@@ -103,13 +157,13 @@ public class ImageToCSV
         {
             // Write header
             var header = string.Join(",", 
-                Enumerable.Range(0, 12288).Select(i => $"pixel_{i}")) + ",y";
+                Enumerable.Range(0, 12288).Select(i => $"{i}")) + ",y";
             writer.WriteLine(header);
             
             // Process each image
             for (int i = 0; i < imagePaths.Length; i++)
             {
-                var features = ConvertImageToFeatures(imagePaths[i]);
+                var features = ConvertImageToFeaturesPixelByPixel(imagePaths[i]);
                 var row = string.Join(",", features.Select(f => f.ToString("F6"))) 
                     + "," + labels[i];
                 writer.WriteLine(row);
@@ -118,7 +172,6 @@ public class ImageToCSV
     }
 }
 ```
-
 Usage:
 ```
 string[] catImages = Directory.GetFiles("cats/", "*.jpg");
