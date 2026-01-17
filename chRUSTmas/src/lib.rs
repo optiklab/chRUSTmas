@@ -53,28 +53,16 @@ impl DeepNeuralNetwork {
 
         let mut parameters: HashMap<String, Array2<f32>> = HashMap::new();
 
-        // start the loop from the first hidden layer to the output layer. 
-        // We are not starting from 0 because the zeroth layer is the input layer.
+        // Zeroth layer is the input layer.
+        // Start the loop from the first hidden layer (not zeroth input layer) to the output layer. 
         for l in 1..number_of_layers {
             // Create 2D array with values between -1 and 1.
             let weight_matrix = Array::from_shape_fn(
                 (self.layers[l], self.layers[l - 1]),
                 |_| between.sample(&mut rng),
-            );            
-            // OLD way doing the same:
-            // Create a flattened weights array of (N * M) values
-            //let weight_array: Vec<f32> = (0..self.layers[l]*self.layers[l-1])
-            //    .map(|_| between.sample(&mut rng))
-            //    .collect();
-            // Creates an n-dimensional (2D, actually) array rom a flat Vec by reshaping it into the specified dimensions (2)
-            // Rows = self.layers[l] (number of neurons in current layer)
-            // Columns = self.layers[l - 1] (number of neurons in previous layer)
-            //let weight_matrix = Array::from_shape_vec((self.layers[l], self.layers[l - 1]), weight_array).unwrap();
+            );
 
             let bias_matrix = Array::zeros((self.layers[l], 1));
-            // OLD way doing the same:            
-            //let bias_array: Vec<f32> = (0..self.layers[l]).map(|_| 0.0).collect();
-            //let bias_matrix = Array::from_shape_vec((self.layers[l], 1), bias_array).unwrap();
 
             let weight_string = ["W", &l.to_string()].join("").to_string();
             let biases_string = ["b", &l.to_string()].join("").to_string();
