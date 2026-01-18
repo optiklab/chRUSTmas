@@ -53,6 +53,10 @@ cargo add ndarray -F serde
 
 cargo add rand
 
+## num-integer
+
+cargo add num-integer
+
 # deps copy
 
 cargo install (if just cargo.toml copied)
