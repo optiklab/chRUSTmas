@@ -4,7 +4,9 @@ A Rust implementation from scratch of a classifier that can identify images of c
 
 ## To run
 
-$> cargo install --path && ch_rust_mas
+```
+cargo install --path && ch_rust_mas
+```
 
 ## Explainer
 
@@ -116,7 +118,65 @@ These gradients then used in the optimization step to update the parameters and 
 
 ## Dependencies
 
+```
 cargo add polars -F lazy
 cargo add ndarray -F serde
 cargo add rand
 cargo add num-integer
+```
+
+### Polars explainer
+
+```
+cargo add polars -F lazy
+```
+
+-F (--features)
+
+Enables the Lazy API in Polars — lazy evaluation (similar to Spark / DataFrames):
+- you build a computation graph
+- the query optimizer performs filter pushdown, projection pushdown, etc.
+- execution starts only when .collect() is called
+
+Example (lazy execution):
+```
+    use polars::prelude::*;
+
+    fn main() -> PolarsResult<()> {
+        let df = LazyFrame::scan_csv("data.csv", Default::default())?
+            .filter(col("size").gt(10))           // не выполняется
+            .select([col("name"), col("size")])   // не выполняется
+            .collect()?; // запуск оптимизатора и выполнения
+
+        println!("{df}");
+        Ok(())
+```
+
+Alternative: eager approach (immediate execution)
+```
+use polars::prelude::*;
+
+let df = CsvReader::from_path("data.csv")?
+    .finish()?;        // загрузка уже выполнена
+
+let filtered = df.filter(&col("age").gt(30))?;   // выполняется сразу
+```
+Why you should almost always use Lazy? Because the lazy plan knows the entire operation graph, so it can:
+- drop unused columns before reading the file
+- push down filters (filter pushdown)
+- combine expressions
+- eliminate duplicate computations
+- optimize joins
+- reorder operations for maximum efficiency
+
+In essence, enabling the lazy feature turns Polars into a full‑fledged query optimizer, on par with Spark, DuckDB, and DataFusion.
+
+### ndarray & serde explainer
+
+```
+cargo add ndarray -F serde
+```
+
+The serde feature allows arrays (Array, Array2, ArrayD, …) to be serialized into JSON, CBOR, and other formats, and deserialized back.
+Without serde, ndarray cannot perform serialization.
+The serde feature adds Serialize / Deserialize implementations for ndarray types.
