@@ -11,6 +11,7 @@ use rand::distr::Uniform;
 use rand::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::f32::consts::E;
 use num_integer::Roots;
@@ -32,6 +33,10 @@ impl Log for Array2<f32> {
     }
 }
 
+// Reads a CSV file from the specified file path and returns a tuple containing two Polars DataFrames:
+// 1. training_dataset: A DataFrame containing all columns except the "y" column (features).
+// 2. training_labels: A DataFrame containing only the "y" column (labels).
+// This function is useful for preparing data for machine learning tasks, where features and labels need to be separated.
 pub fn dataframe_from_csv(file_path: PathBuf) -> PolarsResult<(DataFrame, DataFrame)> {
     let file = File::open(file_path).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
     let data = CsvReader::new(file).finish()?;
@@ -48,6 +53,23 @@ pub fn dataframe_from_csv(file_path: PathBuf) -> PolarsResult<(DataFrame, DataFr
     let training_labels = data.select(["y"])?;
 
     return Ok((training_dataset, training_labels));
+}
+
+// Writes the parameters (weights and biases) of the neural network to a JSON file at the specified file path.
+// The parameters are stored in a HashMap where the keys are strings representing the parameter names (e.g., "W1", "b1") 
+// and the values are 2D ndarray Arrays of f32 type representing the parameter values. 
+pub fn write_parameters_to_json_file(
+    parameters: &HashMap<String, Array2<f32>>,
+    file_path: PathBuf,
+) {
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(file_path)
+        .unwrap();
+
+    _ = serde_json::to_writer(file, parameters);
 }
 
 // Stores the intermediate values needed for each layer. It includes the activation matrix a, weight matrix w, and bias matrix b. 
@@ -434,6 +456,75 @@ impl DeepNeuralNetwork {
                 - (learning_rate * grads[&bias_string_grad].clone());
         }
         parameters
+    }
+
+    // Training loop.
+    // Takes in 
+    // the training data: x_train_data, 
+    // training labels: y_train_data, 
+    // the parameters dictionary: parameters, 
+    // the number of training loop iterations: iterations,
+    // the learning_rate. 
+    // Returns the new parameters after a training iteration.
+    pub fn train_model(
+        &self,
+        x_train_data: &Array2<f32>,
+        y_train_data: &Array2<f32>,
+        mut parameters: HashMap<String, Array2<f32>>,
+        iterations: usize,
+        learning_rate: f32,
+    ) -> HashMap<String, Array2<f32>> {
+
+        // It initializes an empty vector to store the cost values for each iteration.
+        let mut costs: Vec<f32> = vec![];
+
+        // In each iteration of the training loop, it performs the following steps:
+        for i in 0..iterations {
+            // Performs forward propagation to obtain the final activation al and the caches.
+            let (al, caches) = self.forward(&x_train_data, &parameters);
+            // Calculates the cost.
+            let cost = self.cost(&al, &y_train_data);
+            // Performs backward propagation to compute the gradients.
+            let grads = self.backward(&al, &y_train_data, caches);
+            // Updates the parameters with the computed gradients and the learning rate.
+            parameters = self.update_parameters(&parameters, grads.clone(), learning_rate);
+
+            // If the current iteration is a multiple of 100, it appends the cost value to the costs vector and prints the current epoch number and cost value.
+            if i % 100 == 0 {
+                costs.append(&mut vec![cost]);
+                println!("Epoch : {}/{}    Cost: {:?}", i, iterations, cost);
+            }
+        }
+
+        // Returns the updated parameters.
+        parameters
+    }
+
+    // Makes predictions on the test data using the trained parameters.
+    pub fn predict(
+        &self,
+        x_test_data: &Array2<f32>,
+        parameters: &HashMap<String, Array2<f32>>,
+    ) -> Array2<f32> {
+        // Obtain the final activation al.
+        let (al, _) = self.forward(&x_test_data, &parameters);
+        // Apply a threshold of 0.5 to the elements of al using the map method, converting values greater than 0.5 to 1.0 and values less than or equal to 0.5 to 0.0.
+        let y_hat = al.map(|x| (x > &0.5) as i32 as f32);
+        // Return the predicted labels as y_hat.
+        y_hat
+    }
+
+    // Calculates the accuracy score of the predicted labels compared to the actual test labels.
+    pub fn score(&self, y_hat: &Array2<f32>, y_test_data: &Array2<f32>) -> f32 {
+        
+        // Calculates the element-wise absolute difference between the predicted labels y_hat and the actual test labels y_test_data.
+        // Then sums the absolute differences using the sum method.
+        // Then divides the sum by the number of examples (y_test_data.shape()[1]) and multiplies by 100.0 to get the error percentage.
+        let error =
+            (y_hat - y_test_data).map(|x| x.abs()).sum() / y_test_data.shape()[1] as f32 * 100.0;
+
+        // Finally, subtracts the error percentage from 100.0 to get the accuracy score and returns it.
+        100.0 - error
     }
 }
 
