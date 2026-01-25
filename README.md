@@ -2,6 +2,12 @@
 
 A Rust implementation from scratch of a classifier that can identify images of cats and non-cats.
 
+## To run
+
+$> cargo install --path && ch_rust_mas
+
+## Explainer
+
 First, I have implemented a form of what’s called **forward propagation**, wherein a neural network takes input data and makes a prediction. 
 It’s called this because you’re propagating activations forward through the network. 
 
