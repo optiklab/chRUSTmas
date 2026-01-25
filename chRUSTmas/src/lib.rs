@@ -226,6 +226,31 @@ pub fn linear_backward(
     (da_prev, dw, db)
 }
 
+/// Combines the linear backward propagation and activation backward propagation steps for a layer in a neural network. 
+/// It takes the derivative of the cost function with respect to the activation `da`, a tuple containing the linear cache and activation cache, and a string indicating the activation function used.
+/// Depending on the specified activation function, it computes the derivative of the cost function with respect to the linear output `dz` using the appropriate backward activation function (sigmoid or ReLU). 
+/// It then calls the `linear_backward` function to compute the gradients with respect to the previous layer’s activation `da_prev`, weights `dw`, and biases `db`.
+/// The function returns `da_prev`, `dw`, and `db` as a tuple.
+pub fn linear_backward_activation(
+    da: &Array2<f32>,
+    cache: (LinearCache, ActivationCache),
+    activation: &str,
+) -> (Array2<f32>, Array2<f32>, Array2<f32>) {
+    let (linear_cache, activation_cache) = cache;
+
+    match activation {
+        "sigmoid" => {
+            let dz = sigmoid_backward(da, activation_cache);
+            linear_backward(&dz, linear_cache)
+        }
+        "relu" => {
+            let dz = relu_backward(da, activation_cache);
+            linear_backward(&dz, linear_cache)
+        }
+        _ => panic!("wrong activation string"),
+    }
+}
+
 // ------------------------------------- End of Backward Activations / Backward propagation functions below -------------------------------------
 
 struct DeepNeuralNetwork {
@@ -393,12 +418,10 @@ impl DeepNeuralNetwork {
         &self,
         params: &HashMap<String, Array2<f32>>,
         grads: HashMap<String, Array2<f32>>,
-        m: f32, 
         learning_rate: f32,
-
     ) -> HashMap<String, Array2<f32>> {
         let mut parameters = params.clone();
-        let num_of_layers = self.layer_dims.len() - 1;
+        let num_of_layers = self.layers.len() - 1;
         for l in 1..num_of_layers + 1 {
             let weight_string_grad = ["dW", &l.to_string()].join("").to_string();
             let bias_string_grad = ["db", &l.to_string()].join("").to_string();
@@ -406,7 +429,7 @@ impl DeepNeuralNetwork {
             let bias_string = ["b", &l.to_string()].join("").to_string();
 
             *parameters.get_mut(&weight_string).unwrap() = parameters[&weight_string].clone()
-                - (learning_rate * (grads[&weight_string_grad].clone() + (self.lambda/m) *parameters[&weight_string].clone()) );
+                - (learning_rate * (grads[&weight_string_grad].clone()));
             *parameters.get_mut(&bias_string).unwrap() = parameters[&bias_string].clone()
                 - (learning_rate * grads[&bias_string_grad].clone());
         }
