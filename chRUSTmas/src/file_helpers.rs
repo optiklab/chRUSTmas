@@ -5,11 +5,6 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 
-/// Converts a Polars DataFrame to a 2D ndarray Array of f32 type.
-pub fn array_from_dataframe(df: &DataFrame) -> Array2<f32> {
-    df.to_ndarray::<Float32Type>(IndexOrder::C).unwrap().reversed_axes()
-}
-
 /// Reads a CSV file from the specified file path and returns a tuple containing two Polars DataFrames:
 /// 1. training_dataset: A DataFrame containing all columns except the "y" column (features).
 /// 2. training_labels: A DataFrame containing only the "y" column (labels).

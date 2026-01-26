@@ -8,27 +8,17 @@ use num_integer::Roots;
 pub mod activations;
 pub mod backward;
 pub mod cache;
-pub mod data;
+pub mod file_helpers;
+pub mod array_helpers;
 pub mod forward;
 
 // Re-export public items for convenience
 pub use activations::{relu, relu_activation, relu_prime, sigmoid, sigmoid_activation, sigmoid_prime};
 pub use backward::{linear_backward, linear_backward_activation, relu_backward, sigmoid_backward};
 pub use cache::{ActivationCache, LinearCache};
-pub use data::{array_from_dataframe, dataframe_from_csv, write_parameters_to_json_file};
+pub use file_helpers::{dataframe_from_csv, write_parameters_to_json_file};
+pub use array_helpers::{array_from_dataframe, Log};
 pub use forward::{linear_forward, linear_forward_activation};
-
-// Trait to compute natural logarithm of each element in a 2D array.
-trait Log {
-    fn log(&self) -> Array2<f32>;
-}
-
-// Implementation of the Log trait for 2D ndarray Array of f32 type.
-impl Log for Array2<f32> {
-    fn log(&self) -> Array2<f32> {
-        self.mapv(|x| x.log(std::f32::consts::E))
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct DeepNeuralNetwork {
