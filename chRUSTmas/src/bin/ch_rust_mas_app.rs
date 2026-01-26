@@ -1,7 +1,8 @@
-use chRUSTmas::*;
+use ch_rust_mas::*;
 use std::env;
 fn main() {
-    env::set_var("RUST_BACKTRACE", "1");
+    // SAFETY: This is called at the start of main before any threads are spawned
+    unsafe { env::set_var("RUST_BACKTRACE", "1") };
 
     // Set the neural network layers, learning rate, and number of iterations.
     let neural_network_layers: Vec<usize> = vec![12288, 20, 7, 5, 1];
