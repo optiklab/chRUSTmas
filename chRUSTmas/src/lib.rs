@@ -275,6 +275,7 @@ pub fn linear_backward_activation(
 
 // ------------------------------------- End of Backward Activations / Backward propagation functions below -------------------------------------
 
+#[derive(Clone, Debug)]
 pub struct DeepNeuralNetwork {
     pub layers: Vec<usize>,
     pub learning_rate: f32,
