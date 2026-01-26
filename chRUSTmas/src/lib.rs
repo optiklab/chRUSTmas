@@ -1,25 +1,22 @@
 use ndarray::prelude::*;
-use polars::prelude::*; // Polars is a DataFrame library for Rust. It is based on Apache Arrow’s memory model. 
-                        // Apache Arrow provides very cache efficient columnar data structures and 
-                        // is becoming the defacto standard for columnar data.
-
-                        // Polars is named after polar bears which are one of the fastest and most powerful animals 
-                        // in their environment - just like Polars aims to be the fastest DataFrame library.
-
-                        // Besides that, all Polars functions return the same error type, making error handling predictable.
 use rand::distr::Uniform;
 use rand::prelude::*;
 use std::collections::HashMap;
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::path::PathBuf;
-use std::f32::consts::E;
 use num_integer::Roots;
 
-// Converts a Polars DataFrame to a 2D ndarray Array of f32 type.
-pub fn array_from_dataframe(df: &DataFrame) -> Array2<f32> {
-    df.to_ndarray::<Float32Type>(IndexOrder::C).unwrap().reversed_axes()
-}
+// Module declarations
+pub mod activations;
+pub mod backward;
+pub mod cache;
+pub mod data;
+pub mod forward;
+
+// Re-export public items for convenience
+pub use activations::{relu, relu_activation, relu_prime, sigmoid, sigmoid_activation, sigmoid_prime};
+pub use backward::{linear_backward, linear_backward_activation, relu_backward, sigmoid_backward};
+pub use cache::{ActivationCache, LinearCache};
+pub use data::{array_from_dataframe, dataframe_from_csv, write_parameters_to_json_file};
+pub use forward::{linear_forward, linear_forward_activation};
 
 // Trait to compute natural logarithm of each element in a 2D array.
 trait Log {
@@ -32,248 +29,6 @@ impl Log for Array2<f32> {
         self.mapv(|x| x.log(std::f32::consts::E))
     }
 }
-
-// Reads a CSV file from the specified file path and returns a tuple containing two Polars DataFrames:
-// 1. training_dataset: A DataFrame containing all columns except the "y" column (features).
-// 2. training_labels: A DataFrame containing only the "y" column (labels).
-// This function is useful for preparing data for machine learning tasks, where features and labels need to be separated.
-pub fn dataframe_from_csv(file_path: PathBuf) -> PolarsResult<(DataFrame, DataFrame)> {
-    let file = File::open(file_path).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
-    let data = CsvReader::new(file).finish()?;
-
-    // Now, splitting loaded DataFrame (data) into features and labels
-    // to prepare data for machine learning.
-
-    // Create a new DataFrame that contains all the columns from the original CSV
-    // except the column named "y". This represents input features (X).
-    let training_dataset = data.drop("y")?;
-
-    // Create a separate DataFrame that contains only the column named "y". 
-    // This represents target variable (labels).
-    let training_labels = data.select(["y"])?;
-
-    return Ok((training_dataset, training_labels));
-}
-
-// Writes the parameters (weights and biases) of the neural network to a JSON file at the specified file path.
-// The parameters are stored in a HashMap where the keys are strings representing the parameter names (e.g., "W1", "b1") 
-// and the values are 2D ndarray Arrays of f32 type representing the parameter values. 
-pub fn write_parameters_to_json_file(
-    parameters: &HashMap<String, Array2<f32>>,
-    file_path: PathBuf,
-) {
-    let file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(file_path)
-        .unwrap();
-
-    _ = serde_json::to_writer(file, parameters);
-}
-
-// Stores the intermediate values needed for each layer. It includes the activation matrix a, weight matrix w, and bias matrix b. 
-// These matrices are used to calculate the logit matrix z in the forward propagation process.
-#[derive(Clone, Debug)]
-pub struct LinearCache {
-    pub a: Array2<f32>, // A[l]: Activation matrix for layer l. It represents the output or activation values of the neurons in a specific layer.
-    pub w: Array2<f32>, // W[l]: Weights matrix for layer l. It contains the weights connecting the neurons of layer l-1 to the neurons of layer l.
-    pub b: Array2<f32>, // b[l]: Bias matrix for layer l. It contains the bias values added to the linear transformation of the inputs for layer l.
-}
-
-// Takes the activation matrix `a`, weight matrix `w`, and bias matrix `b` as inputs with the goal to compute the logit matrix `z` for a specific layer in a neural network.
-// It calculates the logit matrix for each layer using the following expression:
-//    ```
-//    Z[l] = W[l]A[l-1] + b[l]
-//    ```
-// In simpler terms, the logit matrix for layer `l` is obtained by taking the dot product of the weight matrix `W[l]` and the activation matrix `A[l-1]` from the previous layer, and then adding the bias matrix `b[l]`. 
-// This step represents the linear transformation of the inputs for the current layer by calculating the dot product of `w` and `a`, and then adding `b` to the result. 
-// The resulting matrix `z` represents the logits of the layer. The function returns `z` along with a LinearCache struct that stores the input matrices for later use in backward propagation.
-pub fn linear_forward(
-    a: &Array2<f32>,
-    w: &Array2<f32>,
-    b: &Array2<f32>,
-) -> (Array2<f32>, LinearCache) {
-    let z = w.dot(a) + b;
-
-    let cache = LinearCache {
-        a: a.clone(),
-        w: w.clone(),
-        b: b.clone(),
-    };
-    return (z, cache);
-}
-
-// Activation functions below introduce non-linearity to neural networks and play a crucial role in the forward propagation process. 
-// The code provides implementations for two commonly used activation functions: sigmoid and relu.
-
-// Non-linear activation function sigmoid.
-// The sigmoid function maps the input value to a range between 0 and 1, enabling the network to model non-linear relationships.
-pub fn sigmoid(z: &f32) -> f32 {
-    1.0 / (1.0 + E.powf(-z))
-}
-
-// Non-linear activation function relu (Rectified Linear Unit).
-// If `z` is greater than zero, the function returns `z`; otherwise, it returns zero. 
-// ReLU is a popular activation function that introduces non-linearity and helps the network learn complex patterns.
-pub fn relu(z: &f32) -> f32 {
-    match *z > 0.0 {
-        true => *z,
-        false => 0.0,
-    }
-}
-
-// Matrix-based sigmoid activation function. Takes a 2D matrix `z` as input and apply the respective activation function element-wise using the mapv function.
-// The resulting activation matrix is returned along with an ActivationCache struct that stores the corresponding logit matrix.
-pub fn sigmoid_activation(z: Array2<f32>) -> (Array2<f32>, ActivationCache) {
-    (z.mapv(|x| sigmoid(&x)), ActivationCache { z })
-}
-
-// Matrix-based ReLU activation function. Takes a 2D matrix `z` as input and apply the respective activation function element-wise using the mapv function.
-// The resulting activation matrix is returned along with an ActivationCache struct that stores the corresponding logit matrix.
-pub fn relu_activation(z: Array2<f32>) -> (Array2<f32>, ActivationCache) {
-    (z.mapv(|x| relu(&x)), ActivationCache { z })
-}
-
-// Stores the logit matrix z for each layer. 
-// This cache is essential for later stages, such as backpropagation, where the stored values are required.
-#[derive(Clone, Debug)]
-pub struct ActivationCache {
-    pub z: Array2<f32>, // `Z[l]`: Logit Matrix for layer `l`. It represents the linear transformation of the inputs for a particular layer.
-}
-
-// Takes the activation matrix a, weight matrix w, bias matrix b and additional activation parameter indicating the activation function to be applied as inputs.
-// To perform forward propagation, we need to calculate logit matrix `z` using linear_forward function and then apply the specified activation function to compute the activation matrix `a_next` and the activation cache. 
-// i.e. we need to follow these two steps for each layer:
-// 1. Calculate the logit matrix z for each layer using the following expression:
-//    ```
-//    Z[l] = W[l]A[l-1] + b[l]
-//    ```
-//    In simpler terms, the logit matrix for layer `l` is obtained by taking the dot product of the weight matrix `W[l]` and the activation matrix `A[l-1]` from the previous layer, and then adding the bias matrix `b[l]`. This step represents the linear transformation of the inputs for the current layer.
-// 
-// 2. Calculate the activation matrix from the logit matrix using an activation function:
-//    A[l] = ActivationFunction(Z[l])
-// 
-//    Here, the activation function can be any non-linear function applied element-wise to the elements of the logit matrix. Popular activation functions include sigmoid, tanh, and relu. 
-//    In our model, we will use the relu activation function for all intermediate layers and sigmoid for the last layer (classifier layer). 
-//    This step introduces non-linearity into the network, allowing it to learn and model complex relationships in the data.
-// 
-// For `n[l]` number of hidden units in layer `l` and m number of examples, these are the shapes of each matrix:
-// 
-// Z[l] ⇾ [n[l] x m]
-// W[l] ⇾ [n[l] x n[l-1]] - i.e. number of connections between hidden units in current layer (rows) and previous layer (columns)
-// b[l] ⇾ [n[l] x 1]
-// A[l] ⇾ [n[l] x m]
-// 
-// The function returns a_next along with a tuple of the linear cache and activation cache, wrapped in a Result enum. 
-// If the specified activation function is not supported, an error message is returned.
-pub fn linear_forward_activation(
-    a: &Array2<f32>,
-    w: &Array2<f32>,
-    b: &Array2<f32>,
-    activation: &str,
-) -> Result<(Array2<f32>, (LinearCache, ActivationCache)), String> {
-    match activation {
-        "sigmoid" => {
-            let (z, linear_cache) = linear_forward(a, w, b);
-            let (a_next, activation_cache) = sigmoid_activation(z);
-            return Ok((a_next, (linear_cache, activation_cache)));
-        }
-        "relu" => {
-            let (z, linear_cache) = linear_forward(a, w, b);
-            let (a_next, activation_cache) = relu_activation(z);
-            return Ok((a_next, (linear_cache, activation_cache)));
-        }
-        _ => return Err("wrong activation string".to_string()),
-    }
-}
-
-// ------------------------------------- Backward Activations / Backward propagation functions below -------------------------------------
-
-// Derivative of sigmoid activation function.
-// Calculates the derivative of the sigmoid activation function.
-// It takes the input `z` and returns the derivative value, which is computed as the sigmoid of `z` multiplied by 1.0 minus the sigmoid of `z`.
-pub fn sigmoid_prime(z: &f32) -> f32 {
-    sigmoid(z) * (1.0 - sigmoid(z))
-}
-
-// Derivative of ReLU activation function.
-// Computes the derivative of the ReLU activation function. It takes the input `z` and returns 1.0 if `z` is greater than 0, and 0.0 otherwise.
-pub fn relu_prime(z: &f32) -> f32 {
-    match *z > 0.0 {
-        true => 1.0,
-        false => 0.0,
-    }
-}
-
-// Backward propagation for sigmoid activation function.
-// Computes the backward propagation (i.e. the gradient of the loss) with respect to the input of the sigmoid activation function.
-// It takes the derivative of the cost function with respect to the activation da and the activation cache activation_cache.
-// It performs an element-wise multiplication between da and the derivative of the sigmoid function applied to the values in the activation cache, activation_cache.z.
-pub fn sigmoid_backward(da: &Array2<f32>, activation_cache: ActivationCache) -> Array2<f32> {
-    da * activation_cache.z.mapv(|x| sigmoid_prime(&x))
-}
-
-// Backward propagation for ReLU activation function.
-// Computes the backward propagation for the ReLU activation function. 
-// It takes the derivative of the cost function with respect to the activation da and the activation cache activation_cache. 
-// It performs an element-wise multiplication between da and the derivative of the ReLU function applied to the values in the activation cache, activation_cache.z.
-pub fn relu_backward(da: &Array2<f32>, activation_cache: ActivationCache) -> Array2<f32> {
-    da * activation_cache.z.mapv(|x| relu_prime(&x))
-}
-
-// Calculates the backward propagation for the linear component of a layer. 
-// It takes the gradient of the cost function with respect to the linear output `dz` and the linear cache linear_cache. 
-// It returns the gradients with respect to the previous layer’s activation `da_prev`, the weights `dw`, and the biases `db`.
-// 
-// The function first extracts the previous layer’s activation `a_prev`, the weight matrix `w`, and the bias matrix `_b` from the linear cache. 
-// It computes the number of training examples `m` by accessing the shape of `a_prev` and dividing the number of examples by `m`.
-// 
-// The function then calculates the gradient of the weights `dw` using the dot product between `dz` and the transposed `a_prev`, scaled by `1/m`. 
-// It computes the gradient of the biases `db` by summing the elements of `dz` along Axis(1) and scaling the result by `1/m`. 
-// Finally, it computes the gradient of the previous layer’s activation `da_prev` by performing the dot product between the transposed `w` and `dz`.
-//
-// The function returns `da_prev`, `dw`, and `db` as a tuple.
-pub fn linear_backward(
-    dz: &Array2<f32>,
-    linear_cache: LinearCache,
-) -> (Array2<f32>, Array2<f32>, Array2<f32>) {
-    let (a_prev, w, _b) = (linear_cache.a, linear_cache.w, linear_cache.b);
-    let m = a_prev.shape()[1] as f32;
-    let dw = (1.0 / m) * (dz.dot(&a_prev.reversed_axes()));
-    let db_vec = ((1.0 / m) * dz.sum_axis(Axis(1))).to_vec();
-    let db = Array2::from_shape_vec((db_vec.len(), 1), db_vec).unwrap();
-    let da_prev = w.reversed_axes().dot(dz);
-
-    (da_prev, dw, db)
-}
-
-/// Combines the linear backward propagation and activation backward propagation steps for a layer in a neural network. 
-/// It takes the derivative of the cost function with respect to the activation `da`, a tuple containing the linear cache and activation cache, and a string indicating the activation function used.
-/// Depending on the specified activation function, it computes the derivative of the cost function with respect to the linear output `dz` using the appropriate backward activation function (sigmoid or ReLU). 
-/// It then calls the `linear_backward` function to compute the gradients with respect to the previous layer’s activation `da_prev`, weights `dw`, and biases `db`.
-/// The function returns `da_prev`, `dw`, and `db` as a tuple.
-pub fn linear_backward_activation(
-    da: &Array2<f32>,
-    cache: (LinearCache, ActivationCache),
-    activation: &str,
-) -> (Array2<f32>, Array2<f32>, Array2<f32>) {
-    let (linear_cache, activation_cache) = cache;
-
-    match activation {
-        "sigmoid" => {
-            let dz = sigmoid_backward(da, activation_cache);
-            linear_backward(&dz, linear_cache)
-        }
-        "relu" => {
-            let dz = relu_backward(da, activation_cache);
-            linear_backward(&dz, linear_cache)
-        }
-        _ => panic!("wrong activation string"),
-    }
-}
-
-// ------------------------------------- End of Backward Activations / Backward propagation functions below -------------------------------------
 
 #[derive(Clone, Debug)]
 pub struct DeepNeuralNetwork {
@@ -323,12 +78,12 @@ impl DeepNeuralNetwork {
         parameters
     }
 
-    // Forward propagation implementation.
-    // Takes the input matrix x and the parameters (weights and biases) as inputs.
-    // By performing forward propagation, our neural network takes the input data through all the layers,
-    // applying linear transformations and activation functions, and eventually produces a prediction or output at the final layer.
-    // During the forward propagation process, we will store the weight matrix, bias matrix, and logit matrix as cache. 
-    // This stored information will prove useful in the subsequent step of backward propagation, where we update the model’s parameters based on the computed gradients.
+    /// Forward propagation implementation.
+    /// Takes the input matrix x and the parameters (weights and biases) as inputs.
+    /// By performing forward propagation, our neural network takes the input data through all the layers,
+    /// applying linear transformations and activation functions, and eventually produces a prediction or output at the final layer.
+    /// During the forward propagation process, we will store the weight matrix, bias matrix, and logit matrix as cache. 
+    /// This stored information will prove useful in the subsequent step of backward propagation, where we update the model's parameters based on the computed gradients.
     pub fn forward(
         &self,
         x: &Array2<f32>,
@@ -372,9 +127,9 @@ impl DeepNeuralNetwork {
         return (al, caches);
     }
 
-    // Computes the cost of the predictions made by the neural network.
-    // It takes the final activation matrix al (predicted outputs) and the true labels y as inputs.
-    // The cost is calculated using the cross-entropy loss function, which measures the difference between the predicted probabilities and the true labels.
+    /// Computes the cost of the predictions made by the neural network.
+    /// It takes the final activation matrix al (predicted outputs) and the true labels y as inputs.
+    /// The cost is calculated using the cross-entropy loss function, which measures the difference between the predicted probabilities and the true labels.
     pub fn cost(&self, al: &Array2<f32>, y: &Array2<f32>) -> f32 {
         let m = y.shape()[1] as f32;
         let cost = -(1.0 / m)
@@ -384,11 +139,11 @@ impl DeepNeuralNetwork {
         return cost.sum();
     }
     
-    // Performs the backward propagation algorithm to calculate the gradients of the cost function with respect to the parameters (weights and biases) of each layer.
-    // The method takes the final activation `al` obtained from the forward propagation, the true labels `y`, and the caches containing the linear and activation values for each layer.
-    // Returns the grads map containing the gradients of the cost function with respect to each parameter of the neural network.
-    // These gradients will be used in the optimization step to update the parameters and minimize the cost.
-	pub fn backward(
+    /// Performs the backward propagation algorithm to calculate the gradients of the cost function with respect to the parameters (weights and biases) of each layer.
+    /// The method takes the final activation `al` obtained from the forward propagation, the true labels `y`, and the caches containing the linear and activation values for each layer.
+    /// Returns the grads map containing the gradients of the cost function with respect to each parameter of the neural network.
+    /// These gradients will be used in the optimization step to update the parameters and minimize the cost.
+    pub fn backward(
         &self,
         al: &Array2<f32>,
         y: &Array2<f32>,
@@ -407,7 +162,7 @@ impl DeepNeuralNetwork {
         let current_cache = caches[&num_of_layers.to_string()].clone();
 
         //... and calls the linear_backward_activation function to calculate the gradients of the cost function with respect to the parameters of that layer. 
-        // The activation function used is “sigmoid” for the last layer. The computed gradients for weights, biases, and activation are stored in the grads map.
+        // The activation function used is "sigmoid" for the last layer. The computed gradients for weights, biases, and activation are stored in the grads map.
         let (mut da_prev, mut dw, mut db) =
             linear_backward_activation(&dal, current_cache, "sigmoid");
 
@@ -443,8 +198,8 @@ impl DeepNeuralNetwork {
         grads
     }
 
-    // Go through each layer and update the parameters in the HashMap for each layer by using the HashMap of gradients in that layer. 
-    // Return the updated parameters.
+    /// Go through each layer and update the parameters in the HashMap for each layer by using the HashMap of gradients in that layer. 
+    /// Return the updated parameters.
     pub fn update_parameters(
         &self,
         params: &HashMap<String, Array2<f32>>,
@@ -467,14 +222,14 @@ impl DeepNeuralNetwork {
         parameters
     }
 
-    // Training loop.
-    // Takes in 
-    // the training data: x_train_data, 
-    // training labels: y_train_data, 
-    // the parameters dictionary: parameters, 
-    // the number of training loop iterations: iterations,
-    // the learning_rate. 
-    // Returns the new parameters after a training iteration.
+    /// Training loop.
+    /// Takes in 
+    /// the training data: x_train_data, 
+    /// training labels: y_train_data, 
+    /// the parameters dictionary: parameters, 
+    /// the number of training loop iterations: iterations,
+    /// the learning_rate. 
+    /// Returns the new parameters after a training iteration.
     pub fn train_model(
         &self,
         x_train_data: &Array2<f32>,
@@ -509,7 +264,7 @@ impl DeepNeuralNetwork {
         parameters
     }
 
-    // Makes predictions on the test data using the trained parameters.
+    /// Makes predictions on the test data using the trained parameters.
     pub fn predict(
         &self,
         x_test_data: &Array2<f32>,
@@ -523,7 +278,7 @@ impl DeepNeuralNetwork {
         y_hat
     }
 
-    // Calculates the accuracy score of the predicted labels compared to the actual test labels.
+    /// Calculates the accuracy score of the predicted labels compared to the actual test labels.
     pub fn score(&self, y_hat: &Array2<f32>, y_test_data: &Array2<f32>) -> f32 {
         
         // Calculates the element-wise absolute difference between the predicted labels y_hat and the actual test labels y_test_data.
@@ -540,16 +295,6 @@ impl DeepNeuralNetwork {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_dataframe_from_csv() {
-        let file_path = PathBuf::from("datasets/training_set.csv");
-        let result = dataframe_from_csv(file_path);
-        assert!(result.is_ok());
-        let (training, labels) = result.unwrap();
-        assert!(!training.is_empty());
-        assert!(!labels.is_empty());
-    }
 
     #[test]
     fn test_initialize_parameters() {
