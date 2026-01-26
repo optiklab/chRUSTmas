@@ -5,7 +5,25 @@ A Rust implementation from scratch of a classifier that can identify images of c
 ## To run
 
 ```
-cargo install --path && ch_rust_mas
+cargo install --path .
+ch_rust_mas_app.exe
+```
+
+Results:
+```
+ch_rust_mas_app.exe
+Epoch : 0/1000    Cost: 0.693141
+Epoch : 100/1000    Cost: 0.6493075
+Epoch : 200/1000    Cost: 0.6268611
+Epoch : 300/1000    Cost: 0.5944505
+Epoch : 400/1000    Cost: 0.5521986
+Epoch : 500/1000    Cost: 0.5064041
+Epoch : 600/1000    Cost: 0.47501507
+Epoch : 700/1000    Cost: 0.4300008
+Epoch : 800/1000    Cost: 0.3909312
+Epoch : 900/1000    Cost: 0.34643888
+Training Set Accuracy: 88.03828%
+Test Set Accuracy: 56%
 ```
 
 ## Explainer
