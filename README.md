@@ -2,6 +2,8 @@
 
 A Rust implementation from scratch of a classifier that can identify images of cats and non-cats.
 
+![1](https://github.com/optiklab/chRUSTmas/blob/main/info/rust-cat-classifier-ai.jpg)
+
 ## To run
 
 ```
